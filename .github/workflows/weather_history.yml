@@ -1,0 +1,47 @@
+name: Weather History (24h)
+
+on:
+  schedule:
+    # Runs daily ~00:05 Asia/Tbilisi (UTC+4). Cron uses UTC.
+    - cron: "5 20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # to commit CSV back to repo
+
+concurrency:
+  group: weather-history
+  cancel-in-progress: false
+
+jobs:
+  fetch-and-append:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --upgrade requests
+
+      - name: Run fetcher
+        env:
+          GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}
+        run: python weather_fetch.py
+
+      - name: Commit & push (if changed)
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/weather_history_hourly.csv
+            git commit -m "Update weather history CSV [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+
