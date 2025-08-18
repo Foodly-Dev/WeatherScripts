@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}  # ← same secret as 24h
+    run: python FetchPrevDayData.py
 
     steps:
       - name: Checkout
