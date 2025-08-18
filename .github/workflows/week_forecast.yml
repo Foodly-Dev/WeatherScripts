@@ -2,11 +2,12 @@ name: Week Forecast (168h)
 
 on:
   schedule:
-    - cron: "10 20 * * *"   # ~00:10 Asia/Tbilisi (UTC+4). Cron uses UTC.
+    # Runs daily ~00:10 Asia/Tbilisi (UTC+4). Cron is UTC -> 20:10 UTC.
+    - cron: "10 20 * * *"
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: write   # needed to commit CSVs back to the repo
 
 concurrency:
   group: week-forecast
@@ -15,32 +16,40 @@ concurrency:
 jobs:
   fetch-week-forecast:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --upgrade requests
-      - name: Sanity check secret
-        run: |
-          [ -n "$GOOGLE_WEATHER_API_SECRET" ] || { echo "❌ Secret missing"; exit 1; }
-          echo "✅ Secret present (masked)"
-        env:
-          GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}
+
+      - name: Install dependencies
+        run: pip install --upgrade requests
+
+      # ⬇️ EDIT the script path on the next step to match your repo
+      # e.g. "python FetchNext7Days.py" or "python scripts/FetchNext7Days.py"
       - name: Run forecast fetcher (168h)
         env:
           GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}
-        run: python FetchOneWeekForecast.py
-
-      - name: Commit & push (if changed)
         run: |
+          python FetchOneWeekForecast.py
+
+      - name: Commit & push CSVs (if changed)
+        run: |
+          # Only add the week forecast CSVs (keeps repo clean)
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage only the WeekPrediction_* files in /data
+          if compgen -G "data/WeekPrediction_*.csv" > /dev/null; then
+            git add data/WeekPrediction_*.csv
+          fi
+
+          # Commit iff there are changes
           if [[ -n "$(git status --porcelain)" ]]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            # Add forecast CSVs only (keep commit small)
-            if compgen -G "data/WeekPrediction_*.csv" > /dev/null; then
-              git add data/WeekPrediction_*.csv
-            fi
             git commit -m "Update WeekPrediction CSVs (168h forecast) [skip ci]"
             git push
           else
