@@ -4,6 +4,13 @@
 import os, csv, requests, datetime as dt
 from zoneinfo import ZoneInfo
 
+from pathlib import Path
+
+# ───────── config ─────────
+DATA_DIR = Path("data")    # relative to repo root
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
 
 # ───────── config ─────────
 API_KEY   = os.getenv("GOOGLE_WEATHER_API_SECRET")
@@ -137,9 +144,8 @@ def row_from_hour(h):
 
 
 def save_csv(city_name, rows):
-    fetched_at_local = dt.datetime.now(TBILISI_TZ)
-    date_tag = fetched_at_local.date().isoformat()
-    fname = f"{date_tag}_{city_name.lower()}_hourly_forecast_next168h.csv"
+    # fixed name, not dated
+    fname = DATA_DIR / f"WeekPrediction_{city_name.lower()}.csv"
 
     headers = [
         "interval_start_utc","display_local","utc_offset_min",
@@ -151,9 +157,10 @@ def save_csv(city_name, rows):
     with open(fname, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=headers)
         w.writeheader()
-        for r in rows:
-            w.writerow(r)
+        w.writerows(rows)
+
     print(f"Saved {len(rows):4d} rows → {fname}")
+
 
 # ───────── main ─────────
 def main():

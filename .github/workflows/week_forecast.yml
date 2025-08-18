@@ -1,0 +1,57 @@
+name: Week Forecast (168h)
+
+on:
+  schedule:
+    # Runs daily ~00:10 Asia/Tbilisi (UTC+4). Cron is UTC -> 20:10 UTC.
+    - cron: "10 20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed to commit CSVs back to the repo
+
+concurrency:
+  group: week-forecast
+  cancel-in-progress: false
+
+jobs:
+  fetch-week-forecast:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install --upgrade requests
+
+      # ⬇️ EDIT the script path on the next step to match your repo
+      # e.g. "python FetchNext7Days.py" or "python scripts/FetchNext7Days.py"
+      - name: Run forecast fetcher (168h)
+        env:
+          GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}
+        run: |
+          python FetchOneWeekForecast.py
+
+      - name: Commit & push CSVs (if changed)
+        run: |
+          # Only add the week forecast CSVs (keeps repo clean)
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage only the WeekPrediction_* files in /data
+          if compgen -G "data/WeekPrediction_*.csv" > /dev/null; then
+            git add data/WeekPrediction_*.csv
+          fi
+
+          # Commit iff there are changes
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git commit -m "Update WeekPrediction CSVs (168h forecast) [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
