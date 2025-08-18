@@ -14,6 +14,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ───────── config ─────────
 API_KEY   = os.getenv("GOOGLE_WEATHER_API_SECRET")
+if not API_KEY:
+    raise ValueError("API key not found. Make sure GOOGLE_WEATHER_API_SECRET is set in your repository secrets.")
 BASE_URL   = "https://weather.googleapis.com/v1/forecast/hours:lookup"
 TBILISI_TZ = ZoneInfo("Asia/Tbilisi")
 
