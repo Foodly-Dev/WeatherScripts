@@ -31,7 +31,7 @@ jobs:
       - name: Run fetcher
         env:
           GOOGLE_WEATHER_API_SECRET: ${{ secrets.GOOGLE_WEATHER_API_SECRET }}
-        run: python weather_fetch.py
+        run: python FetchPrevDayData.py
 
       - name: Commit & push (if changed)
         run: |
