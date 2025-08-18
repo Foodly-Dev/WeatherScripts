@@ -8,8 +8,7 @@ import os, csv, requests, datetime as dt
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-
-API_KEY   = os.getenv("GOOGLE_WEATHER_API_SECRET") 
+API_KEY    = "AIzaSyCaotSY2KFJaq_GIwMe8X3-1TNwakyVgV4"
 ENDPOINT  = "https://weather.googleapis.com/v1/history/hours:lookup"
 TIMEZONE  = "Asia/Tbilisi"
 
