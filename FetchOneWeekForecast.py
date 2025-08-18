@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 
 # ───────── config ─────────
-API_KEY    = "AIzaSyCaotSY2KFJaq_GIwMe8X3-1TNwakyVgV4"
+API_KEY   = os.getenv("GOOGLE_WEATHER_API_SECRET")
 BASE_URL   = "https://weather.googleapis.com/v1/forecast/hours:lookup"
 TBILISI_TZ = ZoneInfo("Asia/Tbilisi")
 
