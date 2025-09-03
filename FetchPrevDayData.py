@@ -14,11 +14,13 @@ TIMEZONE  = "Asia/Tbilisi"
 
 # City -> (lat, lon)
 LOCATIONS = {
-    "tbilisi": (41.7151377, 44.827096),
-    "batumi":  (41.643414,  41.639900),
+    # "tbilisi": (41.711922, 44.797670),
+    # "batumi":  (41.643414,  41.639900),
+    "tbilisi": (41.795923, 44.806403)
+    
 }
 
-DATA_PATH = Path("data/weather_history_hourly.csv")
+DATA_PATH = Path("data/weather_history_hourly_north.csv")
 DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def fetch_history(lat: float, lon: float, hours: int = 24, page_size: int = 24):
