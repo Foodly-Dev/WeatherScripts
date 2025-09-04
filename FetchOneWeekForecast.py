@@ -29,7 +29,7 @@ PAGE_SIZE   = 24       # API returns max 24 hours per page
 
 # ───────── Sheets config (Option A) ─────────
 SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-SPREADSHEET_URL_OR_ID = os.getenv("GOOGLE_SHEETS_URL_OR_ID")  # full URL or bare ID
+SPREADSHEET_URL_OR_ID = os.getenv("GOOGLE_SHEETS_URL")  # full URL or bare ID
 TAB_GID  = os.getenv("GOOGLE_SHEETS_TAB_GID")                 # prefer this for exact tab
 TAB_NAME = os.getenv("GOOGLE_SHEETS_TAB_NAME")                # optional fallback (auto-create)
 SA_JSON  = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON")
@@ -44,7 +44,7 @@ SHEET_HEADERS = [
 # ───────── Sheets helpers ─────────
 def _parse_spreadsheet_id(url_or_id: str) -> str:
     if not url_or_id:
-        raise ValueError("GOOGLE_SHEETS_URL_OR_ID is not set.")
+        raise ValueError("GOOGLE_SHEETS_URL is not set.")
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url_or_id)
     return m.group(1) if m else url_or_id.strip()
 
