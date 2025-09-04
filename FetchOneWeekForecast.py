@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, csv, requests, datetime as dt
+import os, csv, requests, datetime as dt, json, re
 from zoneinfo import ZoneInfo
-
 from pathlib import Path
+
+# ── Sheets deps
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ───────── config ─────────
 DATA_DIR = Path("data")    # relative to repo root
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-
-
-# ───────── config ─────────
 API_KEY   = os.getenv("GOOGLE_WEATHER_API_SECRET")
 if not API_KEY:
     raise ValueError("API key not found. Make sure GOOGLE_WEATHER_API_SECRET is set in your repository secrets.")
@@ -27,9 +27,62 @@ CITIES = [
 HOURS_TOTAL = 168      # 7 days
 PAGE_SIZE   = 24       # API returns max 24 hours per page
 
-# ───────── helpers ─────────
+# ───────── Sheets config (Option A) ─────────
+SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SPREADSHEET_URL_OR_ID = os.getenv("GOOGLE_SHEETS_URL_OR_ID")  # full URL or bare ID
+TAB_GID  = os.getenv("GOOGLE_SHEETS_TAB_GID")                 # prefer this for exact tab
+TAB_NAME = os.getenv("GOOGLE_SHEETS_TAB_NAME")                # optional fallback (auto-create)
+SA_JSON  = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON")
+
+SHEET_HEADERS = [
+    "interval_start_utc","display_local","utc_offset_min",
+    "temp_c","feels_like_c","rel_humidity_pct",
+    "wind_speed_ms","wind_dir_deg",
+    "precip_mm","precip_prob_pct","precip_type","condition"
+]
+
+# ───────── Sheets helpers ─────────
+def _parse_spreadsheet_id(url_or_id: str) -> str:
+    if not url_or_id:
+        raise ValueError("GOOGLE_SHEETS_URL_OR_ID is not set.")
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url_or_id)
+    return m.group(1) if m else url_or_id.strip()
+
+def _gspread_client():
+    if not SA_JSON:
+        raise ValueError("Service Account JSON not found in GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON.")
+    creds = Credentials.from_service_account_info(json.loads(SA_JSON), scopes=SHEETS_SCOPES)
+    return gspread.authorize(creds)
+
+def _open_spreadsheet():
+    ssid = _parse_spreadsheet_id(SPREADSHEET_URL_OR_ID)
+    return _gspread_client().open_by_key(ssid)
+
+def _get_or_create_by_name(sh, title):
+    try:
+        return sh.worksheet(title)
+    except gspread.WorksheetNotFound:
+        return sh.add_worksheet(title=title, rows=HOURS_TOTAL + 10, cols=len(SHEET_HEADERS) + 2)
+
+def _get_by_gid(sh, gid_int: int):
+    if hasattr(sh, "get_worksheet_by_id"):
+        return sh.get_worksheet_by_id(gid_int)
+    for ws in sh.worksheets():
+        if getattr(ws, "id", None) == gid_int:
+            return ws
+    raise gspread.WorksheetNotFound(f"No worksheet with gid={gid_int}")
+
+def resolve_target_worksheet(default_title: str):
+    """Priority: TAB_GID → TAB_NAME → default_title (created if missing)."""
+    sh = _open_spreadsheet()
+    if TAB_GID:
+        return _get_by_gid(sh, int(TAB_GID))
+    if TAB_NAME:
+        return _get_or_create_by_name(sh, TAB_NAME)
+    return _get_or_create_by_name(sh, default_title)
+
+# ───────── weather helpers (your originals) ─────────
 def fetch_hourly(lat, lon, hours=HOURS_TOTAL, page_size=PAGE_SIZE):
-    """Fetch ~next `hours` of hourly forecast, paging by `page_size`."""
     all_hours = []
     page_token = None
     params_base = {
@@ -55,25 +108,21 @@ def fetch_hourly(lat, lon, hours=HOURS_TOTAL, page_size=PAGE_SIZE):
         if not page_token or len(hours_chunk) == 0:
             break
 
-        # Safety stop if API over-returns for any reason
         if len(all_hours) >= hours:
             break
 
-    # Sort by interval start (UTC)
     def start_utc(h):
         return (h.get("interval", {}) or {}).get("startTime", "")
     all_hours.sort(key=start_utc)
     return all_hours[:hours]
 
 def _parse_display_datetime(dt_obj):
-    """Return (ISO local string, offset_minutes) from Weather API DateTime."""
     if not dt_obj:
         return None, None
     y = dt_obj.get("year"); m = dt_obj.get("month"); d = dt_obj.get("day")
     hh = dt_obj.get("hours", 0); mm = dt_obj.get("minutes", 0); ss = dt_obj.get("seconds", 0)
     tzinfo = None; offset_min = None
 
-    # Prefer fixed UTC offset if provided (e.g., "14400s")
     utc_off = dt_obj.get("utcOffset")
     if utc_off:
         try:
@@ -83,7 +132,6 @@ def _parse_display_datetime(dt_obj):
         except Exception:
             pass
 
-    # Or use an IANA zone if present
     tz = (dt_obj.get("timeZone") or {}).get("id")
     if tz:
         try:
@@ -106,10 +154,8 @@ def row_from_hour(h):
             x = x.get(k)
         return default if x is None else x
 
-    # Local civil time
     display_iso, offset_min = _parse_display_datetime(h.get("displayDateTime"))
 
-    # Wind speed → m/s
     wind_val  = g(h, "wind", "speed", "value")
     wind_unit = g(h, "wind", "speed", "unit")
     wind_ms = None
@@ -119,15 +165,14 @@ def row_from_hour(h):
         elif wind_unit == "MILES_PER_HOUR":
             wind_ms = wind_val * 0.44704
         else:
-            wind_ms = wind_val  # unknown unit, keep as-is
+            wind_ms = wind_val
 
-    # QPF → mm
     qpf_qty  = g(h, "precipitation", "qpf", "quantity")
     qpf_unit = g(h, "precipitation", "qpf", "unit")
     if qpf_qty is None:
-        precip_mm = 0.0  # API may omit when zero
+        precip_mm = 0.0
     else:
-        precip_mm = qpf_qty * 25.4 if qpf_unit == "INCHES" else qpf_qty  # MILLIMETERS else inches
+        precip_mm = qpf_qty * 25.4 if qpf_unit == "INCHES" else qpf_qty
 
     return {
         "interval_start_utc": g(h, "interval", "startTime"),
@@ -144,32 +189,32 @@ def row_from_hour(h):
         "condition":          g(h, "weatherCondition", "description", "text") or g(h, "weatherCondition", "type"),
     }
 
-
 def save_csv(city_name, rows):
-    # fixed name, not dated
     fname = DATA_DIR / f"WeekPrediction_{city_name.lower()}.csv"
-
-    headers = [
-        "interval_start_utc","display_local","utc_offset_min",
-        "temp_c","feels_like_c","rel_humidity_pct",
-        "wind_speed_ms","wind_dir_deg",
-        "precip_mm","precip_prob_pct","precip_type","condition"
-    ]
-
     with open(fname, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=headers)
+        w = csv.DictWriter(f, fieldnames=SHEET_HEADERS)
         w.writeheader()
         w.writerows(rows)
-
     print(f"Saved {len(rows):4d} rows → {fname}")
 
+def upload_to_sheets(city_name, rows):
+    ws = resolve_target_worksheet(default_title=city_name)  # TAB_GID wins; else TAB_NAME; else per-city
+    values = [[r.get(h) for h in SHEET_HEADERS] for r in rows]
+    ws.clear()
+    ws.update("A1", [SHEET_HEADERS] + values)
+    try:
+        ws.freeze(rows=1)
+    except Exception:
+        pass
+    print(f"Uploaded {len(values):4d} rows → Google Sheet tab '{ws.title}' (gid={getattr(ws,'id','?')})")
 
 # ───────── main ─────────
 def main():
     for name, lat, lon in CITIES:
         hours = fetch_hourly(lat, lon)
         rows  = [row_from_hour(h) for h in hours]
-        save_csv(name, rows)
+        save_csv(name, rows)          # keep artifacts if you want
+        upload_to_sheets(name, rows)  # push to Sheets
 
 if __name__ == "__main__":
     main()
